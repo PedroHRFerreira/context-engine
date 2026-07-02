@@ -1,0 +1,33 @@
+{
+  "name": "context-engine",
+  "version": "0.1.0",
+  "description": "Local context memory CLI for AI agents using SQLite FTS5.",
+  "type": "module",
+  "bin": {
+    "context": "./bin/context"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx test/*.test.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "chalk": "^5.4.1",
+    "chokidar": "^4.0.3",
+    "commander": "^13.1.0",
+    "fast-glob": "^3.3.3",
+    "ignore": "^7.0.3",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

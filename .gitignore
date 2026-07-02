@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.cache/
+.context-engine/
+*.db
+*.sqlite
+*.sqlite3
+npm-debug.log*
