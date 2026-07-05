@@ -1,9 +1,10 @@
 {
-  "name": "context-engine",
+  "name": "rods-sdk",
   "version": "0.1.0",
-  "description": "Local context memory CLI for AI agents using SQLite FTS5.",
+  "description": "Agent governance framework with Context Engine retrieval and RTK-first token economy.",
   "type": "module",
   "bin": {
+    "rods": "./bin/rods",
     "context": "./bin/context",
     "context-mcp": "./bin/context-mcp"
   },

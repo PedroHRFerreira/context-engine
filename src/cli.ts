@@ -1,5 +1,7 @@
 import { Command } from 'commander';
+import { registerAdapterCommand } from './commands/adapter.js';
 import { registerIngestCommand } from './commands/ingest.js';
+import { registerInitCommand } from './commands/init.js';
 import { registerProjectsCommand } from './commands/projects.js';
 import { registerReadCommand } from './commands/read.js';
 import { registerSearchCommand } from './commands/search.js';
@@ -7,13 +9,19 @@ import { registerStatsCommand } from './commands/stats.js';
 
 const program = new Command();
 
-program.name('context').description('Local context memory for AI agents').version('0.1.0').showHelpAfterError();
+program
+  .name('rods')
+  .description('Agent governance framework with Context Engine retrieval and RTK-first token economy')
+  .version('0.1.0')
+  .showHelpAfterError();
 
 registerIngestCommand(program);
 registerSearchCommand(program);
 registerReadCommand(program);
 registerStatsCommand(program);
 registerProjectsCommand(program);
+registerInitCommand(program);
+registerAdapterCommand(program);
 
 try {
   await program.parseAsync(process.argv);
