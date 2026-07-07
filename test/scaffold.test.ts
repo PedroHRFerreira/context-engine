@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { initProject, upgradeProject } from '../src/services/scaffold.js';
+import { initProject, upgradeProject, upgradeProjectScripts } from '../src/services/scaffold.js';
+import { sha256 } from '../src/utils/hash.js';
 
 test('initProject scaffolds governance files and preserves existing files by default', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-init-'));
@@ -65,6 +66,59 @@ test('upgradeProject supports dry-run and reports customized generated files', a
 
   assert.equal(agentsForced?.status, 'overwritten');
   assert.match(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'), /Rods SDK Defaults/);
+});
+
+test('upgradeProjectScripts creates scripts and preserves customized entries', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-upgrade-scripts-'));
+  await fs.writeFile(
+    path.join(root, 'package.json'),
+    `${JSON.stringify({ scripts: { 'context:stats': 'custom stats' } }, null, 2)}\n`
+  );
+  await initProject(root);
+
+  const dryRun = await upgradeProjectScripts(root, { dryRun: true });
+  assert.equal(dryRun.find((result) => result.script === 'rods:upgrade')?.status, 'would-create');
+  assert.equal(dryRun.find((result) => result.script === 'context:stats')?.status, 'skipped-customized');
+
+  const firstRun = await upgradeProjectScripts(root);
+  assert.equal(firstRun.find((result) => result.script === 'rods:upgrade')?.status, 'created');
+  assert.equal(firstRun.find((result) => result.script === 'context:stats')?.status, 'skipped-customized');
+
+  const packageJson = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  const config = JSON.parse(await fs.readFile(path.join(root, '.ai', 'config.json'), 'utf8')) as {
+    generatedScripts: Record<string, string>;
+  };
+
+  assert.equal(packageJson.scripts['rods:upgrade'], 'rods upgrade .');
+  assert.equal(packageJson.scripts['context:stats'], 'custom stats');
+  assert.ok(config.generatedScripts['rods:upgrade']);
+
+  const secondRun = await upgradeProjectScripts(root);
+  assert.equal(secondRun.find((result) => result.script === 'rods:upgrade')?.status, 'unchanged');
+
+  await fs.writeFile(
+    path.join(root, 'package.json'),
+    `${JSON.stringify({ scripts: { ...packageJson.scripts, 'rods:upgrade': 'custom upgrade' } }, null, 2)}\n`
+  );
+  const forced = await upgradeProjectScripts(root, { force: true });
+  assert.equal(forced.find((result) => result.script === 'rods:upgrade')?.status, 'skipped-customized');
+
+  const oldGenerated = 'rods old-upgrade .';
+  const configPath = path.join(root, '.ai', 'config.json');
+  const nextConfig = JSON.parse(await fs.readFile(configPath, 'utf8')) as {
+    generatedScripts: Record<string, string>;
+  };
+  nextConfig.generatedScripts['rods:upgrade'] = sha256(oldGenerated);
+  await fs.writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
+  await fs.writeFile(
+    path.join(root, 'package.json'),
+    `${JSON.stringify({ scripts: { ...packageJson.scripts, 'rods:upgrade': oldGenerated } }, null, 2)}\n`
+  );
+
+  const forcedGenerated = await upgradeProjectScripts(root, { force: true });
+  assert.equal(forcedGenerated.find((result) => result.script === 'rods:upgrade')?.status, 'overwritten');
 });
 
 test('initProject detects stack from lockfiles and Go files', async () => {

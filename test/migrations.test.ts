@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { test } from 'node:test';
-import { runMigrations } from '../src/database/migrations.js';
+import { inspectMigrations, runMigrations } from '../src/database/migrations.js';
 
 test('runMigrations backfills scope for pre-scope databases without data loss', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-migration-'));
@@ -51,7 +51,7 @@ test('runMigrations backfills scope for pre-scope databases without data loss', 
       VALUES ('file:/tmp/file.ts:file', 'hash', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
     `);
 
-    runMigrations(db);
+    const firstRun = runMigrations(db);
 
     const row = db.prepare('SELECT scope, content FROM chunks WHERE id = 1').get() as {
       scope: string;
@@ -68,6 +68,16 @@ test('runMigrations backfills scope for pre-scope databases without data loss', 
     assert.equal(fts.length, 1);
     assert.equal(cache.scope, 'general');
     assert.equal(cache.value, 'hash');
+    assert.equal(firstRun.find((report) => report.migration === 'scope-column')?.status, 'changed');
+    assert.equal(firstRun.find((report) => report.migration === 'cache-scope-column')?.status, 'changed');
+
+    const dryRun = inspectMigrations(db);
+    assert.equal(dryRun.find((report) => report.migration === 'scope-column')?.status, 'unchanged');
+    assert.equal(dryRun.find((report) => report.migration === 'cache-scope-column')?.status, 'unchanged');
+
+    const secondRun = runMigrations(db);
+    assert.equal(secondRun.find((report) => report.migration === 'scope-column')?.status, 'unchanged');
+    assert.equal(secondRun.find((report) => report.migration === 'cache-scope-column')?.status, 'unchanged');
   } finally {
     db.close();
   }

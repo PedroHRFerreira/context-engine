@@ -1,6 +1,18 @@
 import type Database from 'better-sqlite3';
 
-export function runMigrations(db: Database.Database): void {
+export type MigrationStatus = 'changed' | 'unchanged' | 'would-migrate';
+
+export interface IMigrationReport {
+  migration: string;
+  status: MigrationStatus;
+  reason?: string;
+}
+
+interface IColumnInfo {
+  name: string;
+}
+
+export function runMigrations(db: Database.Database): IMigrationReport[] {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -57,25 +69,33 @@ export function runMigrations(db: Database.Database): void {
 
   `);
 
-  migrateScope(db);
-  migrateCacheScope(db);
+  const reports = [migrateScope(db), migrateCacheScope(db)];
   db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_scope ON chunks(scope)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_cache_scope ON cache(scope)');
   createChunkTriggers(db);
+
+  return reports;
 }
 
-function migrateScope(db: Database.Database): void {
-  const chunkColumns = db.prepare('PRAGMA table_info(chunks)').all() as Array<{ name: string }>;
-  const hasChunkScope = chunkColumns.some((column) => column.name === 'scope');
+export function inspectMigrations(db: Database.Database): IMigrationReport[] {
+  return [inspectScopeMigration(db), inspectCacheScopeMigration(db)];
+}
+
+function migrateScope(db: Database.Database): IMigrationReport {
+  const inspection = inspectScopeMigration(db);
+
+  if (inspection.status === 'unchanged') {
+    db.exec("UPDATE chunks SET scope = 'general' WHERE scope IS NULL OR scope = ''");
+    return inspection;
+  }
+
+  const hasChunkScope = hasColumn(db, 'chunks', 'scope');
 
   if (!hasChunkScope) {
     db.exec("ALTER TABLE chunks ADD COLUMN scope TEXT NOT NULL DEFAULT 'general'");
   }
 
-  const ftsColumns = db.prepare('PRAGMA table_info(chunks_fts)').all() as Array<{ name: string }>;
-  const hasFtsScope = ftsColumns.some((column) => column.name === 'scope');
-
-  if (!hasFtsScope) {
+  if (!hasColumn(db, 'chunks_fts', 'scope')) {
     db.exec(`
       DROP TRIGGER IF EXISTS chunks_ai;
       DROP TRIGGER IF EXISTS chunks_ad;
@@ -96,15 +116,16 @@ function migrateScope(db: Database.Database): void {
   }
 
   db.exec("UPDATE chunks SET scope = 'general' WHERE scope IS NULL OR scope = ''");
+
+  return { migration: 'scope-column', status: 'changed' };
 }
 
-function migrateCacheScope(db: Database.Database): void {
-  const cacheColumns = db.prepare('PRAGMA table_info(cache)').all() as Array<{ name: string }>;
-  const hasCacheScope = cacheColumns.some((column) => column.name === 'scope');
+function migrateCacheScope(db: Database.Database): IMigrationReport {
+  const inspection = inspectCacheScopeMigration(db);
 
-  if (hasCacheScope) {
+  if (inspection.status === 'unchanged') {
     db.exec("UPDATE cache SET scope = 'general' WHERE scope IS NULL OR scope = ''");
-    return;
+    return inspection;
   }
 
   db.exec(`
@@ -122,6 +143,8 @@ function migrateCacheScope(db: Database.Database): void {
     SELECT id, key, 'general', value, createdAt, updatedAt FROM cache_legacy;
     DROP TABLE cache_legacy;
   `);
+
+  return { migration: 'cache-scope-column', status: 'changed' };
 }
 
 function createChunkTriggers(db: Database.Database): void {
@@ -147,4 +170,29 @@ function createChunkTriggers(db: Database.Database): void {
       VALUES (new.id, new.content, new.path, new.scope, new.kind, new.language);
     END;
   `);
+}
+
+function inspectScopeMigration(db: Database.Database): IMigrationReport {
+  const hasChunkScope = hasColumn(db, 'chunks', 'scope');
+  const hasFtsScope = hasColumn(db, 'chunks_fts', 'scope');
+
+  if (hasChunkScope && hasFtsScope) {
+    return { migration: 'scope-column', status: 'unchanged', reason: 'already-applied' };
+  }
+
+  return { migration: 'scope-column', status: 'would-migrate' };
+}
+
+function inspectCacheScopeMigration(db: Database.Database): IMigrationReport {
+  if (hasColumn(db, 'cache', 'scope')) {
+    return { migration: 'cache-scope-column', status: 'unchanged', reason: 'already-applied' };
+  }
+
+  return { migration: 'cache-scope-column', status: 'would-migrate' };
+}
+
+function hasColumn(db: Database.Database, table: string, columnName: string): boolean {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as IColumnInfo[];
+
+  return columns.some((column) => column.name === columnName);
 }

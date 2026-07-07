@@ -10,7 +10,7 @@ import type {
   IStats
 } from '../types/context.js';
 import { ensureDir, resolveConfiguredPath } from '../utils/paths.js';
-import { runMigrations } from './migrations.js';
+import { runMigrations, type IMigrationReport } from './migrations.js';
 
 interface ICountRow {
   count: number;
@@ -23,12 +23,13 @@ interface ICacheRow {
 export class ContextDatabase {
   private readonly db: Database.Database;
   readonly databasePath: string;
+  readonly migrationReports: IMigrationReport[];
 
   constructor(config: IContextConfig) {
     this.databasePath = resolveConfiguredPath(config.database);
     ensureDir(path.dirname(this.databasePath));
     this.db = new Database(this.databasePath);
-    runMigrations(this.db);
+    this.migrationReports = runMigrations(this.db);
   }
 
   close(): void {

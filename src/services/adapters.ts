@@ -25,9 +25,10 @@ export interface IGovernanceConfig {
     apiEnabled: false;
   };
   defaultTarget: AdapterTarget;
-  targets: Record<AdapterTarget, { enabled: boolean }>;
+  targets: Record<AdapterTarget, { enabled: boolean; skillsDir?: string }>;
   adapters: Record<AdapterName, IAdapterState>;
   generatedTemplates?: Record<string, string>;
+  generatedScripts?: Record<string, string>;
 }
 
 export interface IAdapterDefinition {
@@ -51,7 +52,11 @@ export interface IAdapterEnableResult {
 
 export interface IAdapterSyncResult {
   target: AdapterTarget;
+  status: 'synced' | 'skipped';
   files: IFileWriteResult[];
+  path?: string;
+  fallback?: boolean;
+  reason?: string;
 }
 
 export interface IAdapterSyncOptions {
@@ -135,7 +140,7 @@ export interface IAdapterTargetDefinition {
   id: AdapterTarget;
   hookPath(root: string, options: IAdapterSyncOptions | IAdapterDoctorOptions): string;
   projectionFn(): Promise<string>;
-  syncFn(root: string, options: IAdapterSyncOptions): Promise<IFileWriteResult[]>;
+  syncFn(root: string, options: IAdapterSyncOptions): Promise<IAdapterSyncResult>;
   doctorFn(root: string, options: IAdapterDoctorOptions): Promise<ITargetIntegrationState>;
 }
 
@@ -211,54 +216,116 @@ export async function syncAdapters(
     throw new Error(`Unsupported adapter target: ${target}`);
   }
 
-  const files = await definition.syncFn(resolvedRoot, options);
-
-  return { target, files };
+  return definition.syncFn(resolvedRoot, options);
 }
 
-async function syncCodexTarget(root: string, options: IAdapterSyncOptions): Promise<IFileWriteResult[]> {
+async function syncCodexTarget(root: string, options: IAdapterSyncOptions): Promise<IAdapterSyncResult> {
+  const config = await loadGovernanceConfig(root);
   const sourceSkillsDir = path.join(root, '.ai', 'skills');
-  const destinationSkillsDir = options.codexSkillsDir
-    ? path.resolve(root, options.codexSkillsDir)
+  const configuredSkillsDir = options.codexSkillsDir ?? config.targets.codex?.skillsDir;
+  const destinationSkillsDir = configuredSkillsDir
+    ? path.resolve(root, configuredSkillsDir)
     : path.join(root, '.agents', 'skills');
-  const files: IFileWriteResult[] = [];
 
   if (!(await pathExists(sourceSkillsDir))) {
-    files.push(await writeTargetHook(root, TARGET_REGISTRY.codex, options));
-    return files;
+    return {
+      target: 'codex',
+      status: 'synced',
+      path: relativeFromRoot(root, destinationSkillsDir),
+      files: [await writeTargetHook(root, TARGET_REGISTRY.codex, options)]
+    };
   }
+
+  const primaryResult = await trySyncCodexTarget(root, sourceSkillsDir, destinationSkillsDir, options);
+
+  if (primaryResult.ok) {
+    return {
+      target: 'codex',
+      status: 'synced',
+      path: relativeFromRoot(root, destinationSkillsDir),
+      fallback: false,
+      files: primaryResult.files
+    };
+  }
+
+  if (configuredSkillsDir) {
+    return {
+      target: 'codex',
+      status: 'skipped',
+      path: relativeFromRoot(root, destinationSkillsDir),
+      fallback: false,
+      reason: primaryResult.reason,
+      files: []
+    };
+  }
+
+  const fallbackSkillsDir = path.join(root, '.codex', 'skills');
+  const fallbackResult = await trySyncCodexTarget(root, sourceSkillsDir, fallbackSkillsDir, options);
+
+  if (fallbackResult.ok) {
+    return {
+      target: 'codex',
+      status: 'synced',
+      path: relativeFromRoot(root, fallbackSkillsDir),
+      fallback: true,
+      reason: primaryResult.reason,
+      files: fallbackResult.files
+    };
+  }
+
+  return {
+    target: 'codex',
+    status: 'skipped',
+    path: relativeFromRoot(root, destinationSkillsDir),
+    fallback: false,
+    reason: fallbackResult.reason,
+    files: []
+  };
+}
+
+async function trySyncCodexTarget(
+  root: string,
+  sourceSkillsDir: string,
+  destinationSkillsDir: string,
+  options: IAdapterSyncOptions
+): Promise<{ ok: true; files: IFileWriteResult[] } | { ok: false; reason: string }> {
+  const files: IFileWriteResult[] = [];
 
   const entries = await fs.readdir(sourceSkillsDir, { withFileTypes: true });
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
+  try {
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      const sourceSkill = path.join(sourceSkillsDir, entry.name, 'SKILL.md');
+
+      if (!(await pathExists(sourceSkill))) {
+        continue;
+      }
+
+      files.push(
+        await copyFileIfAllowed(sourceSkill, path.join(destinationSkillsDir, entry.name, 'SKILL.md'), {
+          force: options.force
+        })
+      );
     }
 
-    const sourceSkill = path.join(sourceSkillsDir, entry.name, 'SKILL.md');
-
-    if (!(await pathExists(sourceSkill))) {
-      continue;
-    }
-
-    files.push(
-      await copyFileIfAllowed(sourceSkill, path.join(destinationSkillsDir, entry.name, 'SKILL.md'), {
-        force: options.force
-      })
-    );
+    files.push(await writeTargetHook(root, TARGET_REGISTRY.codex, options));
+  } catch (error) {
+    return { ok: false, reason: formatSyncError(error) };
   }
 
-  files.push(await writeTargetHook(root, TARGET_REGISTRY.codex, options));
-
-  return files;
+  return { ok: true, files };
 }
 
-async function syncClaudeTarget(root: string, options: IAdapterSyncOptions): Promise<IFileWriteResult[]> {
+async function syncClaudeTarget(root: string, options: IAdapterSyncOptions): Promise<IAdapterSyncResult> {
   const files: IFileWriteResult[] = [];
 
   files.push(await writeTargetHook(root, TARGET_REGISTRY.claude, options));
 
-  return files;
+  return { target: 'claude', status: 'synced', files };
 }
 
 export async function doctorAdapters(
@@ -556,4 +623,16 @@ function firstLine(input: string): string | undefined {
   }
 
   return trimmed.split(/\r?\n/, 1)[0]?.slice(0, 300);
+}
+
+function relativeFromRoot(root: string, targetPath: string): string {
+  return path.relative(root, targetPath) || '.';
+}
+
+function formatSyncError(error: unknown): string {
+  if (error && typeof error === 'object' && 'code' in error && error.code === 'EACCES') {
+    return '.agents/skills is read-only';
+  }
+
+  return error instanceof Error ? error.message : 'sync failed';
 }

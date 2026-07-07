@@ -11,12 +11,18 @@ export type FileWriteStatus =
   | 'customized'
   | 'would-create'
   | 'would-overwrite'
-  | 'would-skip-customized';
+  | 'would-skip-customized'
+  | 'skipped-customized';
 
 export interface IFileWriteResult {
   path: string;
   status: FileWriteStatus;
   upstreamChanged?: boolean;
+}
+
+export interface IScriptWriteResult {
+  script: string;
+  status: FileWriteStatus;
 }
 
 export interface IInitProjectOptions {
@@ -55,6 +61,15 @@ const INIT_TEMPLATES: ITemplateMapping[] = [
     destination: '.ai/adapters/rtk.md'
   }
 ];
+
+const GENERATED_SCRIPTS: Record<string, string> = {
+  'rods:upgrade': 'rods upgrade .',
+  'rods:upgrade:dry-run': 'rods upgrade . --dry-run',
+  'rods:sync': 'rods adapter sync --target codex --codex-skills-dir .codex/skills',
+  'context:ingest': 'context ingest .',
+  'context:ingest:review': 'context ingest . --scope review',
+  'context:stats': 'context stats'
+};
 
 export async function initProject(root: string, options: IInitProjectOptions = {}): Promise<IFileWriteResult[]> {
   const resolvedRoot = path.resolve(root);
@@ -177,6 +192,81 @@ export async function upgradeProject(root: string, options: IInitProjectOptions 
   return results;
 }
 
+export async function upgradeProjectScripts(
+  root: string,
+  options: Pick<IInitProjectOptions, 'force' | 'dryRun'> = {}
+): Promise<IScriptWriteResult[]> {
+  const packageJsonPath = path.join(path.resolve(root), 'package.json');
+  const packageJson = await readJsonFile(packageJsonPath);
+
+  if (!isJsonObject(packageJson)) {
+    return [];
+  }
+
+  const configMetadata = await readGeneratedMetadata(path.resolve(root));
+  const generatedScripts = {
+    ...configMetadata.generatedScripts
+  };
+  const packageScripts = isJsonObject(packageJson.scripts)
+    ? ({ ...packageJson.scripts } as Record<string, unknown>)
+    : {};
+  const results: IScriptWriteResult[] = [];
+  let changed = false;
+
+  for (const [scriptName, scriptValue] of Object.entries(GENERATED_SCRIPTS)) {
+    const currentValue = packageScripts[scriptName];
+    const nextHash = sha256(scriptValue);
+    const previousHash = generatedScripts[scriptName];
+
+    if (currentValue === undefined) {
+      results.push({ script: scriptName, status: options.dryRun ? 'would-create' : 'created' });
+
+      if (!options.dryRun) {
+        packageScripts[scriptName] = scriptValue;
+        generatedScripts[scriptName] = nextHash;
+        changed = true;
+      }
+
+      continue;
+    }
+
+    if (currentValue === scriptValue) {
+      results.push({ script: scriptName, status: 'unchanged' });
+
+      if (!options.dryRun) {
+        generatedScripts[scriptName] = nextHash;
+      }
+
+      continue;
+    }
+
+    if (options.force && typeof currentValue === 'string' && previousHash && sha256(currentValue) === previousHash) {
+      results.push({ script: scriptName, status: options.dryRun ? 'would-overwrite' : 'overwritten' });
+
+      if (!options.dryRun) {
+        packageScripts[scriptName] = scriptValue;
+        generatedScripts[scriptName] = nextHash;
+        changed = true;
+      }
+
+      continue;
+    }
+
+    results.push({ script: scriptName, status: 'skipped-customized' });
+  }
+
+  if (!options.dryRun) {
+    if (changed) {
+      packageJson.scripts = packageScripts;
+      await fs.writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+    }
+
+    await updateGeneratedScriptsMetadata(path.resolve(root), generatedScripts);
+  }
+
+  return results;
+}
+
 export async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
@@ -248,15 +338,41 @@ async function updateTemplateMetadata(root: string, results: IFileWriteResult[])
 }
 
 async function readTemplateMetadata(root: string): Promise<Record<string, string>> {
+  return (await readGeneratedMetadata(root)).generatedTemplates;
+}
+
+async function readGeneratedMetadata(root: string): Promise<{
+  generatedTemplates: Record<string, string>;
+  generatedScripts: Record<string, string>;
+}> {
   const configPath = path.join(root, '.ai', 'config.json');
 
   if (!(await pathExists(configPath))) {
-    return {};
+    return { generatedTemplates: {}, generatedScripts: {} };
   }
 
-  const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as { generatedTemplates?: Record<string, string> };
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as {
+    generatedTemplates?: Record<string, string>;
+    generatedScripts?: Record<string, string>;
+  };
 
-  return config.generatedTemplates ?? {};
+  return {
+    generatedTemplates: config.generatedTemplates ?? {},
+    generatedScripts: config.generatedScripts ?? {}
+  };
+}
+
+async function updateGeneratedScriptsMetadata(root: string, generatedScripts: Record<string, string>): Promise<void> {
+  const configPath = path.join(root, '.ai', 'config.json');
+
+  if (!(await pathExists(configPath))) {
+    return;
+  }
+
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as Record<string, unknown>;
+
+  config.generatedScripts = generatedScripts;
+  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 async function detectProjectStack(root: string): Promise<{ label: string; hasFrontend: boolean }> {
@@ -331,4 +447,8 @@ async function readJsonFile(filePath: string): Promise<unknown | null> {
   } catch {
     return null;
   }
+}
+
+function isJsonObject(input: unknown): input is Record<string, unknown> {
+  return Boolean(input && typeof input === 'object' && !Array.isArray(input));
 }

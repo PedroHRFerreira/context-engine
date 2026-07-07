@@ -80,6 +80,53 @@ test('syncAdapters can copy Codex skills to a custom writable directory', async 
   }
 });
 
+test('syncAdapters falls back to .codex skills when .agents is read-only', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-adapter-sync-fallback-'));
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'context-adapter-codex-home-'));
+  await initProject(root);
+  await fs.mkdir(path.join(root, '.agents'));
+  await fs.chmod(path.join(root, '.agents'), 0o555);
+
+  try {
+    const result = await syncAdapters(root, 'codex', { codexHome });
+    const syncedSkill = await fs.readFile(
+      path.join(root, '.codex', 'skills', 'context-search-first', 'SKILL.md'),
+      'utf8'
+    );
+
+    assert.equal(result.status, 'synced');
+    assert.equal(result.fallback, true);
+    assert.equal(result.path, path.join('.codex', 'skills'));
+    assert.match(result.reason ?? '', /read-only|permission|EACCES|denied/i);
+    assert.match(syncedSkill, /Context Search First/);
+  } finally {
+    await fs.chmod(path.join(root, '.agents'), 0o755);
+  }
+});
+
+test('syncAdapters respects configured Codex skills directory', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-adapter-sync-configured-'));
+  const codexHome = await fs.mkdtemp(path.join(os.tmpdir(), 'context-adapter-codex-home-'));
+  await initProject(root);
+
+  const configPath = path.join(root, '.ai', 'config.json');
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as {
+    targets: { codex: { enabled: boolean; skillsDir?: string } };
+  };
+  config.targets.codex.skillsDir = '.codex/configured-skills';
+  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  const result = await syncAdapters(root, 'codex', { codexHome });
+
+  assert.equal(result.status, 'synced');
+  assert.equal(result.path, path.join('.codex', 'configured-skills'));
+  assert.equal(result.fallback, false);
+  assert.match(
+    await fs.readFile(path.join(root, '.codex', 'configured-skills', 'context-search-first', 'SKILL.md'), 'utf8'),
+    /Context Search First/
+  );
+});
+
 test('syncAdapters writes Claude projection from the target registry', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-adapter-claude-'));
   await initProject(root);
