@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { registerAdapterCommand } from './commands/adapter.js';
 import { registerIngestCommand } from './commands/ingest.js';
@@ -8,12 +11,16 @@ import { registerSearchCommand } from './commands/search.js';
 import { registerStatsCommand } from './commands/stats.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
 
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const packageJsonPath = path.join(currentDir, '../package.json');
+const { version } = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+
 const program = new Command();
 
 program
   .name('rods')
   .description('Agent governance framework with Context Engine retrieval and RTK-first token economy')
-  .version('0.1.0')
+  .version(version)
   .showHelpAfterError();
 
 registerIngestCommand(program);
