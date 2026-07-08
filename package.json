@@ -1,13 +1,29 @@
 {
-  "name": "rods-sdk",
+  "name": "@pedrohrferreira/rods-sdk",
   "version": "0.1.0",
   "description": "Agent governance framework with Context Engine retrieval and RTK-first token economy.",
   "type": "module",
+  "files": [
+    "bin",
+    "dist",
+    "templates"
+  ],
   "bin": {
     "rods": "./bin/rods",
     "context": "./bin/context",
     "context-mcp": "./bin/context-mcp"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PedroHRFerreira/rods-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PedroHRFerreira/rods-sdk/issues"
+  },
+  "homepage": "https://github.com/PedroHRFerreira/rods-sdk#readme",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",

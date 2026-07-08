@@ -25,6 +25,12 @@ npm install
 npm run build
 ```
 
+Ou instale o pacote publicado:
+
+```bash
+npm install -g @pedrohrferreira/rods-sdk
+```
+
 Registre e indexe um projeto:
 
 ```bash

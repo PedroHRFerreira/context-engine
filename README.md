@@ -13,11 +13,24 @@ O Rods SDK entrega uma camada operacional pequena e auditável para agentes:
 ## Instalação
 
 ```bash
+npm install -g @pedrohrferreira/rods-sdk
+```
+
+Para usar sem instalação global:
+
+```bash
+npx @pedrohrferreira/rods-sdk rods --help
+npx @pedrohrferreira/rods-sdk context --help
+```
+
+Para desenvolvimento local neste repositório:
+
+```bash
 npm install
 npm run build
 ```
 
-Instalações via git executam `prepare` para gerar `dist/` automaticamente. Em projetos com pnpm, se lifecycle scripts de dependências estiverem bloqueados, rode `pnpm approve-builds` ou adicione `rods-sdk` em `pnpm.onlyBuiltDependencies`.
+Instalações via git executam `prepare` para gerar `dist/` automaticamente. Em projetos com pnpm, se lifecycle scripts de dependências estiverem bloqueados, rode `pnpm approve-builds` ou adicione `@pedrohrferreira/rods-sdk` em `pnpm.onlyBuiltDependencies`.
 
 Durante o desenvolvimento:
 
@@ -80,7 +93,7 @@ Ou configure no `package.json` raiz do consumidor:
 ```json
 {
   "pnpm": {
-    "onlyBuiltDependencies": ["rods-sdk"]
+    "onlyBuiltDependencies": ["@pedrohrferreira/rods-sdk"]
   }
 }
 ```
