@@ -80,3 +80,69 @@ test('IndexerService isolates search results by scope', async () => {
     delete process.env.CONTEXT_ENGINE_HOME;
   }
 });
+
+test('IndexerService detects the project root when ingesting a single file', async () => {
+  const storageHome = await fs.mkdtemp(path.join(os.tmpdir(), 'context-home-root-detect-'));
+  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'context-project-root-detect-'));
+  process.env.CONTEXT_ENGINE_HOME = storageHome;
+
+  await fs.mkdir(path.join(projectRoot, 'src'), { recursive: true });
+  await fs.writeFile(path.join(projectRoot, '.gitignore'), 'src/ignored.ts\n');
+
+  const sourcePath = path.join(projectRoot, 'src', 'ignored.ts');
+  await fs.writeFile(sourcePath, 'ignored-by-root-detection\n');
+
+  const config = loadConfig();
+  const db = new ContextDatabase(config);
+
+  try {
+    const indexer = new IndexerService(db, config);
+    const summary = await indexer.ingestPath(sourcePath);
+
+    assert.equal(summary.indexed, 0);
+    assert.equal(summary.ignored, 1);
+    assert.equal(db.search('ignored-by-root-detection', 8).length, 0);
+  } finally {
+    db.close();
+    delete process.env.CONTEXT_ENGINE_HOME;
+  }
+});
+
+test('loadConfig resolves relative CONTEXT_ENGINE_HOME from the provided project root', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'context-home-relative-root-'));
+  const projectRoot = path.join(workspaceRoot, 'app');
+  process.env.CONTEXT_ENGINE_HOME = '.context-engine';
+
+  await fs.mkdir(projectRoot, { recursive: true });
+
+  const config = loadConfig(projectRoot);
+  const db = new ContextDatabase(config, { baseDir: projectRoot });
+
+  try {
+    assert.equal(db.databasePath, path.join(projectRoot, '.context-engine', 'db', 'context.db'));
+  } finally {
+    db.close();
+    delete process.env.CONTEXT_ENGINE_HOME;
+  }
+});
+
+test('ContextDatabase error includes the database path it attempted to open', async () => {
+  const storageHome = await fs.mkdtemp(path.join(os.tmpdir(), 'context-home-open-error-'));
+  const blockingPath = path.join(storageHome, 'db', 'context.db');
+  process.env.CONTEXT_ENGINE_HOME = storageHome;
+
+  await fs.mkdir(path.dirname(blockingPath), { recursive: true });
+  await fs.mkdir(blockingPath, { recursive: true });
+
+  const config = loadConfig();
+
+  assert.throws(
+    () => new ContextDatabase(config),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message.includes('Failed to open Context Engine database at') &&
+      error.message.includes(blockingPath)
+  );
+
+  delete process.env.CONTEXT_ENGINE_HOME;
+});

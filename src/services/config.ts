@@ -13,8 +13,8 @@ export function getDefaultConfig(): IContextConfig {
   };
 }
 
-export function loadConfig(): IContextConfig {
-  const configPath = getConfigPath();
+export function loadConfig(baseDir = process.cwd()): IContextConfig {
+  const configPath = getConfigPath(baseDir);
   ensureDir(path.dirname(configPath));
 
   if (!fs.existsSync(configPath)) {

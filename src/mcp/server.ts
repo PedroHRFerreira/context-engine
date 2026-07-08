@@ -1,11 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import fs from 'node:fs/promises';
+import pathModule from 'node:path';
 import process from 'node:process';
 import { z } from 'zod';
 import { ContextDatabase } from '../database/database.js';
 import { loadConfig } from '../services/config.js';
 import { IndexerService, normalizeScope } from '../services/indexer.js';
 import { detectKind } from '../utils/kind.js';
+import { resolveProjectRoot } from '../utils/paths.js';
 
 const INSTRUCTIONS = [
   'Context Engine is a local memory layer for code agents.',
@@ -93,18 +96,25 @@ server.tool(
   {
     path: z.string().min(1),
     scope: z.string().min(1).optional(),
+    projectRoot: z.string().min(1).optional(),
     type: z
       .enum(['file', 'log', 'diff', 'markdown', 'error', 'stacktrace', 'json', 'sql', 'http'])
       .optional()
   },
-  async ({ path, scope, type }) => {
-    const { db, close, config } = openContext();
+  async ({ path, scope, type, projectRoot }) => {
+    const absoluteTargetPath = pathModule.resolve(path);
+    const targetStat = await fs.stat(absoluteTargetPath);
+    const resolvedProjectRoot = resolveProjectRoot(absoluteTargetPath, projectRoot);
+    const baseDir =
+      resolvedProjectRoot ?? (targetStat.isDirectory() ? absoluteTargetPath : pathModule.dirname(absoluteTargetPath));
+    const { db, close, config } = openContext(baseDir);
 
     try {
       const indexer = new IndexerService(db, config);
-      const summary = await indexer.ingestPath(path, {
-        type: type ? detectKind(path, type) : undefined,
-        scope: normalizeScope(scope)
+      const summary = await indexer.ingestPath(absoluteTargetPath, {
+        type: type ? detectKind(absoluteTargetPath, type) : undefined,
+        scope: normalizeScope(scope),
+        projectRoot: resolvedProjectRoot ?? undefined
       });
 
       return toJsonResult(summary);
@@ -159,9 +169,9 @@ server.tool(
   }
 );
 
-function openContext() {
-  const config = loadConfig();
-  const db = new ContextDatabase(config);
+function openContext(baseDir = process.cwd()) {
+  const config = loadConfig(baseDir);
+  const db = new ContextDatabase(config, { baseDir });
 
   return {
     config,

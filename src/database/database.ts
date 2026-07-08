@@ -25,10 +25,22 @@ export class ContextDatabase {
   readonly databasePath: string;
   readonly migrationReports: IMigrationReport[];
 
-  constructor(config: IContextConfig) {
-    this.databasePath = resolveConfiguredPath(config.database);
+  constructor(
+    config: IContextConfig,
+    options: {
+      baseDir?: string;
+    } = {}
+  ) {
+    this.databasePath = resolveConfiguredPath(config.database, options.baseDir);
     ensureDir(path.dirname(this.databasePath));
-    this.db = new Database(this.databasePath);
+
+    try {
+      this.db = new Database(this.databasePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to open Context Engine database at ${this.databasePath}: ${message}`);
+    }
+
     this.migrationReports = runMigrations(this.db);
   }
 

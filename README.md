@@ -158,6 +158,7 @@ context stats
 context project add <name> <root>
 context project list
 context project remove <name>
+context ingest <path> [--type <type>] [--scope <scope>] [--project-root <path>]
 rods init [path] [--force]
 rods upgrade [path] [--force] [--dry-run]
 rods adapter list
@@ -189,7 +190,7 @@ Por padrão, os arquivos ficam em:
   db/context.db
 ```
 
-Defina `CONTEXT_ENGINE_HOME` para isolar o armazenamento em testes ou experimentos locais.
+Defina `CONTEXT_ENGINE_HOME` para isolar o armazenamento em testes ou experimentos locais. Quando ele for relativo, o rods-sdk resolve o caminho a partir da raiz detectada do projeto ou da raiz passada em `--project-root`.
 
 ## Economia De Tokens
 

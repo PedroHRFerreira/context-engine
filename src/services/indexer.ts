@@ -6,12 +6,14 @@ import type { IChunkInput, IContextConfig, IIngestSummary, TContextKind } from '
 import { sha256 } from '../utils/hash.js';
 import { buildIgnoreFilter } from '../utils/ignore.js';
 import { detectKind } from '../utils/kind.js';
+import { resolveProjectRoot } from '../utils/paths.js';
 import { detectLanguage } from '../utils/language.js';
 import { chunkContent } from './chunk.js';
 
 export interface IIngestOptions {
   type?: TContextKind;
   scope?: string;
+  projectRoot?: string;
 }
 
 export class IndexerService {
@@ -23,9 +25,10 @@ export class IndexerService {
   async ingestPath(inputPath: string, options: IIngestOptions = {}): Promise<IIngestSummary> {
     const targetPath = path.resolve(inputPath);
     const stat = await fs.stat(targetPath);
-    const root = stat.isDirectory() ? targetPath : path.dirname(targetPath);
-    const ignoreFilter = buildIgnoreFilter(root, this.config.ignore);
-    const files = stat.isDirectory() ? await this.listFiles(targetPath, ignoreFilter.patterns) : [targetPath];
+    const projectRoot = resolveProjectRoot(targetPath, options.projectRoot);
+    const scanRoot = projectRoot ?? (stat.isDirectory() ? targetPath : path.dirname(targetPath));
+    const ignoreFilter = buildIgnoreFilter(scanRoot, this.config.ignore);
+    const files = stat.isDirectory() ? await this.listFiles(scanRoot, ignoreFilter.patterns, targetPath) : [targetPath];
     const summary = createSummary();
 
     for (const filePath of files) {
@@ -52,8 +55,8 @@ export class IndexerService {
     return summary;
   }
 
-  private async listFiles(root: string, ignorePatterns: string[]): Promise<string[]> {
-    return fg('**/*', {
+  private async listFiles(root: string, ignorePatterns: string[], onlyWithin?: string): Promise<string[]> {
+    const files = await fg('**/*', {
       absolute: true,
       cwd: root,
       dot: true,
@@ -62,6 +65,12 @@ export class IndexerService {
       onlyFiles: true,
       unique: true
     });
+
+    if (!onlyWithin) {
+      return files;
+    }
+
+    return files.filter((filePath) => filePath === onlyWithin || filePath.startsWith(`${onlyWithin}${path.sep}`));
   }
 
   private async ingestFile(filePath: string, options: IIngestOptions): Promise<{ skipped: boolean; chunks: number }> {
