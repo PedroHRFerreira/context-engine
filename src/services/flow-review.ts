@@ -57,7 +57,7 @@ export function runTestGate(command: IWorkflowTestCommand | undefined, cwd: stri
   const output = sanitizeTestOutput(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   if (!result.error && result.status === 0) return { status: 'passed', durationMs: Date.now() - started, output };
   const reason = result.error?.message ?? `exit code ${result.status ?? 'unknown'}`;
-  return { status: 'failed', durationMs: Date.now() - started, output, finding: { severity: 'high', message: `testCommand failed (${reason})${output ? `:\n${output}` : ''}` } };
+  return { status: 'failed', durationMs: Date.now() - started, output, finding: { severity: 'high', message: `testCommand failed (${reason})${output ? `:\n${output}` : ''}`, file: null } };
 }
 
 function git(cwd: string, args: string[], allowedCodes = [0]): string {

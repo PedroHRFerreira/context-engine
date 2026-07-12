@@ -14,6 +14,7 @@ review=false
 invalid=false
 no_usage=false
 mode=''
+schema=''
 previous=''
 for arg in "$@"; do
   [ "$arg" = "--output-format" ] && claude=true
@@ -23,16 +24,20 @@ for arg in "$@"; do
   [ "$arg" = "--invalid-output" ] && invalid=true
   [ "$arg" = "--no-usage" ] && no_usage=true
   [ "$previous" = "--approval-mode" ] && mode="$arg"
+  [ "$previous" = "--output-schema" ] && schema="$arg"
   case "$arg" in *'"approved"'*) review=true ;; esac
   previous="$arg"
 done
+if [ -n "$schema" ]; then
+  node -e 'const fs = require("fs"); const schema = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const item = schema.properties.findings.items; const keys = Object.keys(item.properties); const fileType = item.properties.file.type; if (!keys.every((key) => item.required.includes(key)) || !Array.isArray(fileType) || !fileType.includes("string") || !fileType.includes("null")) process.exit(1)' "$schema" || exit 23
+fi
 if [ "$gemini" = true ]; then
   if [ "$invalid" = true ]; then response='not-json'; elif [ "$mode" = "plan" ] && [ "$review" = true ]; then response='{\\"approved\\":true,\\"summary\\":\\"ok\\",\\"findings\\":[]}'; else response="done:$mode"; fi
   if [ "$no_usage" = true ]; then printf '{"response":"%s","stats":{"models":{}}}\n' "$response"; else printf '{"response":"%s","stats":{"models":{"pro":{"tokens":{"prompt":5,"candidates":2}},"flash":{"tokens":{"prompt":7,"candidates":3}}}}}\n' "$response"; fi
 elif [ "$claude" = true ]; then
   printf '%s\n' '{"result":"done","usage":{"input_tokens":7,"output_tokens":3}}'
 else
-  printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"approved\\":true,\\"summary\\":\\"ok\\",\\"findings\\":[]}"}}'
+  printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"approved\\":true,\\"summary\\":\\"ok\\",\\"findings\\":[{\\"severity\\":\\"low\\",\\"message\\":\\"general finding\\",\\"file\\":null}]}"}}'
   printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":7,"output_tokens":3}}'
 fi
 `);
@@ -43,6 +48,7 @@ test('agent adapters select configured models and parse structured review and us
   const binary = await fakeAgent(); const config = { binary, models: { simple: 'small', medium: 'medium', high: 'large' }, args: [], timeoutMs: 5000 };
   const codex = await runAgent({ agent: 'codex', config, tier: 'simple', cwd: os.tmpdir(), prompt: 'review', review: true });
   assert.equal(codex.review?.approved, true); assert.equal(codex.inputTokens, 7); assert.equal(codex.outputTokens, 3);
+  assert.equal(codex.review?.findings[0]?.file, null);
   const claude = await runAgent({ agent: 'claude', config, tier: 'high', cwd: os.tmpdir(), prompt: 'work' });
   assert.equal(claude.output, 'done'); assert.equal(claude.inputTokens, 7);
 });

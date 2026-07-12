@@ -6,11 +6,11 @@ import { z } from 'zod';
 import type { ComplexityLevel } from '../escalation/types.js';
 import type { AgentTarget, IAgentExecutionConfig } from './adapters.js';
 
-export const ReviewSchema = z.object({ approved: z.boolean(), summary: z.string(), findings: z.array(z.object({ severity: z.enum(['low','medium','high']), message: z.string(), file: z.string().optional() })) });
+export const ReviewSchema = z.object({ approved: z.boolean(), summary: z.string(), findings: z.array(z.object({ severity: z.enum(['low','medium','high']), message: z.string(), file: z.string().nullable() })) });
 export type ReviewResult = z.infer<typeof ReviewSchema>;
 export interface IAgentResult { output: string; exitCode: number; durationMs: number; inputTokens: number | null; outputTokens: number | null; review?: ReviewResult; modelClaimedApproved?: boolean; }
 
-const REVIEW_JSON_SCHEMA = { type: 'object', additionalProperties: false, properties: { approved: { type: 'boolean' }, summary: { type: 'string' }, findings: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { severity: { enum: ['low','medium','high'] }, message: { type: 'string' }, file: { type: 'string' } }, required: ['severity','message'] } } }, required: ['approved','summary','findings'] };
+const REVIEW_JSON_SCHEMA = { type: 'object', additionalProperties: false, properties: { approved: { type: 'boolean' }, summary: { type: 'string' }, findings: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { severity: { enum: ['low','medium','high'] }, message: { type: 'string' }, file: { type: ['string','null'] } }, required: ['severity','message','file'] } } }, required: ['approved','summary','findings'] };
 const BANNED_ARGS = new Set(['--model','-m','--prompt','-p','--dangerously-bypass-approvals-and-sandbox','--dangerously-skip-permissions','--approval-mode','--yolo','-y','--sandbox','-s']);
 const BANNED_ARG_PREFIXES = ['--model=','--prompt=','--approval-mode=','--yolo=','--sandbox='];
 
