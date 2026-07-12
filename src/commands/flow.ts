@@ -6,7 +6,8 @@ import path from 'node:path';
 import type { Command } from 'commander';
 import { ContextDatabase } from '../database/database.js';
 import { classifyTask, loadComplexityPolicy } from '../escalation/index.js';
-import { runAgent, type ReviewResult } from '../services/agent-runner.js';
+import type { ComplexityLevel } from '../escalation/types.js';
+import { runAgent, validateAgentExecutionConfig, type AgentPhase, type ReviewResult } from '../services/agent-runner.js';
 import { AGENT_TARGET_IDS, loadGovernanceConfig, type AgentTarget, type IGovernanceConfig } from '../services/adapters.js';
 import { loadConfig } from '../services/config.js';
 import {
@@ -25,6 +26,15 @@ type FlowMode = string;
 function git(root: string, args: string[]): string { return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }); }
 function agents(mode: FlowMode): [AgentTarget, AgentTarget] { const parts = mode.split('+') as AgentTarget[]; return [parts[0], parts[1] ?? parts[0]]; }
 function execution(config: IGovernanceConfig, agent: AgentTarget) { const value = config.targets[agent].execution; if (!value) throw new Error(`Execution is not configured for ${agent}`); return value; }
+function modelForRecord(config: IGovernanceConfig, agent: AgentTarget, tier: string): string {
+  const target = (config.targets as Partial<Record<AgentTarget, { execution?: { models?: Record<string, unknown> } }>>)[agent];
+  const model = target?.execution?.models?.[tier];
+  return typeof model === 'string' && model.trim() ? model : 'unknown';
+}
+export function preflightFlowExecution(config: IGovernanceConfig, developer: AgentTarget, reviewer: AgentTarget, tier: ComplexityLevel): void {
+  validateAgentExecutionConfig({ agent: developer, config: config.targets[developer]?.execution, tier, phase: 'develop' });
+  validateAgentExecutionConfig({ agent: reviewer, config: config.targets[reviewer]?.execution, tier, phase: 'review' });
+}
 function compactTask(task: string): string { return task.trim().replace(/\s+/g, ' ').slice(0, 4000); }
 function posix(value: string): string { return value.split(path.sep).join('/').replace(/^\.\//, ''); }
 
@@ -76,6 +86,7 @@ export function registerFlowCommand(program: Command): void {
     const [developer, reviewer] = agents(mode); const maxIterations = config.workflow?.maxIterations ?? 3; const failOnSeverity = config.workflow?.failOnSeverity ?? 'high';
     if (!Number.isSafeInteger(maxIterations) || maxIterations < 1) throw new Error('workflow.maxIterations must be >= 1');
     if (failOnSeverity !== 'high' && failOnSeverity !== 'medium') throw new Error('workflow.failOnSeverity must be high or medium');
+    preflightFlowExecution(config, developer, reviewer, classification.level);
     const id = randomUUID(); const short = id.slice(0, 8); const worktree = path.join(os.tmpdir(), `rods-flow-${short}`); const branch = `rods-flow/${short}`; const patchPath = path.join(os.tmpdir(), `rods-flow-${short}.patch`);
     git(root, ['worktree','add','-b',branch,worktree,'HEAD']);
     const db = new ContextDatabase(loadConfig()); const project = db.findProjectForPath(root) ?? db.upsertProject(path.basename(root), root);
@@ -84,7 +95,7 @@ export function registerFlowCommand(program: Command): void {
     const usage: Array<{ phase: string; agent: AgentTarget; inputTokens: number | null; outputTokens: number | null; durationMs: number }> = [];
     const omittedFiles = new Set<string>(); let reviewsExecuted = 0, reviewsAvoidedByGate = 0, snippetsUsed = 0, findingsConsulted = 0, findingComparisons = 0;
     let recurring: IRecurringFindingResult | undefined;
-    const recordFailure = (phase: string, agent: AgentTarget, cause: unknown, started: number) => db.addFlowStep({ runId: id, phase, agent, model: execution(config, agent).models[classification.level], status: 'failed', durationMs: Date.now() - started, error: cause instanceof Error ? cause.message : String(cause) });
+    const recordFailure = (phase: AgentPhase, agent: AgentTarget, cause: unknown, started: number) => db.addFlowStep({ runId: id, phase, agent, model: modelForRecord(config, agent, classification.level), status: 'failed', durationMs: Date.now() - started, error: cause instanceof Error ? cause.message : String(cause) });
     try {
       for (iterations = 1; iterations <= maxIterations; iterations++) {
         const phase = iterations === 1 ? 'develop' : 'patch'; const started = Date.now();
@@ -93,7 +104,7 @@ export function registerFlowCommand(program: Command): void {
           const correctionDiff = iterations === 1 ? undefined : buildReviewDiff(worktree, { priorityFiles });
           const phaseTier = classification.level;
           const prompt = buildDeveloperPrompt(task, iterations === 1 ? undefined : review, recurring, correctionDiff?.content);
-          const result = await runAgent({ agent: developer, config: execution(config, developer), tier: phaseTier, cwd: worktree, prompt });
+          const result = await runAgent({ agent: developer, config: execution(config, developer), tier: phaseTier, cwd: worktree, prompt, phase });
           usage.push({ phase, agent: developer, inputTokens: result.inputTokens, outputTokens: result.outputTokens, durationMs: result.durationMs });
           db.addFlowStep({ runId: id, phase, agent: developer, model: execution(config, developer).models[phaseTier], status: 'completed', durationMs: result.durationMs, inputTokens: result.inputTokens, outputTokens: result.outputTokens, exitCode: result.exitCode, summary: result.output.slice(0, 2000) });
         } catch (cause) { recordFailure(phase, developer, cause, started); throw cause; }

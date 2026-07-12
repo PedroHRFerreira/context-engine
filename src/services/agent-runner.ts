@@ -19,13 +19,24 @@ export function enforceApproval(review: ReviewResult, failOnSeverity: 'high' | '
   return blocking ? { ...review, approved: false } : review;
 }
 
-function validate(config: IAgentExecutionConfig, tier: ComplexityLevel): string {
-  if (!config.binary.trim()) throw new Error('Agent binary is not configured');
-  const model = config.models[tier]?.trim();
-  if (!model) throw new Error(`No model configured for tier ${tier}`);
-  if (config.args.some((arg) => BANNED_ARGS.has(arg) || BANNED_ARG_PREFIXES.some((prefix) => arg.startsWith(prefix)) || /^-m\S/.test(arg) || arg.startsWith('--dangerously-'))) throw new Error('Agent args contain a reserved or unsafe option');
-  if (!Number.isSafeInteger(config.timeoutMs) || config.timeoutMs < 1000) throw new Error('Agent timeoutMs must be an integer >= 1000');
-  return model;
+export type AgentPhase = 'develop' | 'patch' | 'review';
+
+export function validateAgentExecutionConfig(input: { agent: AgentTarget; config: unknown; tier: ComplexityLevel; phase: AgentPhase }): string {
+  const prefix = `Invalid execution configuration for ${input.agent} during ${input.phase}`;
+  if (!input.config || typeof input.config !== 'object') throw new Error(`${prefix}: execution must be an object`);
+  const config = input.config as Partial<IAgentExecutionConfig>;
+  if (typeof config.binary !== 'string' || !config.binary.trim()) throw new Error(`${prefix}: binary must be a non-empty string`);
+  if (!config.models || typeof config.models !== 'object') throw new Error(`${prefix}: models must be an object`);
+  const configuredModel = config.models[input.tier];
+  if (typeof configuredModel !== 'string' || !configuredModel.trim()) throw new Error(`${prefix}: model for tier ${input.tier} must be a non-empty string`);
+  if (!Array.isArray(config.args) || config.args.some((arg) => typeof arg !== 'string')) throw new Error(`${prefix}: args must be an array of strings`);
+  if (config.args.some((arg) => BANNED_ARGS.has(arg) || BANNED_ARG_PREFIXES.some((reserved) => arg.startsWith(reserved)) || /^-m\S/.test(arg) || arg.startsWith('--dangerously-'))) throw new Error(`${prefix}: args contain a reserved or unsafe option`);
+  if (!Number.isSafeInteger(config.timeoutMs) || (config.timeoutMs ?? 0) < 1000) throw new Error(`${prefix}: timeoutMs must be an integer >= 1000`);
+  return configuredModel.trim();
+}
+
+function validate(agent: AgentTarget, config: IAgentExecutionConfig, tier: ComplexityLevel, phase: AgentPhase): string {
+  return validateAgentExecutionConfig({ agent, config, tier, phase });
 }
 
 function usageFrom(value: unknown): { input: number | null; output: number | null } {
@@ -71,8 +82,8 @@ function extractOutput(agent: AgentTarget, stdout: string): { output: string; us
   return { output: messages.at(-1) ?? stdout.trim(), usage };
 }
 
-export async function runAgent(input: { agent: AgentTarget; config: IAgentExecutionConfig; tier: ComplexityLevel; cwd: string; prompt: string; review?: boolean; failOnSeverity?: 'high' | 'medium' }): Promise<IAgentResult> {
-  const model = validate(input.config, input.tier); const started = Date.now();
+export async function runAgent(input: { agent: AgentTarget; config: IAgentExecutionConfig; tier: ComplexityLevel; cwd: string; prompt: string; review?: boolean; phase?: AgentPhase; failOnSeverity?: 'high' | 'medium' }): Promise<IAgentResult> {
+  const model = validate(input.agent, input.config, input.tier, input.phase ?? (input.review ? 'review' : 'develop')); const started = Date.now();
   const schemaDir = await fs.mkdtemp(path.join(os.tmpdir(), 'rods-schema-')); const schemaPath = path.join(schemaDir, 'review.json');
   if (input.review) await fs.writeFile(schemaPath, JSON.stringify(REVIEW_JSON_SCHEMA));
   const prompt = input.agent === 'gemini' && input.review

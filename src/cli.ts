@@ -14,6 +14,7 @@ import { registerReadCommand } from './commands/read.js';
 import { registerSearchCommand } from './commands/search.js';
 import { registerStatsCommand } from './commands/stats.js';
 import { registerUpgradeCommand } from './commands/upgrade.js';
+import { formatCliError } from './utils/errors.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const packageJsonPath = path.join(currentDir, '../package.json');
@@ -43,6 +44,6 @@ registerUpgradeCommand(program);
 try {
   await program.parseAsync(process.argv);
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(formatCliError(error));
   process.exitCode = 1;
 }

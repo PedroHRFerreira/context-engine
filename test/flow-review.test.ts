@@ -5,7 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { test } from 'node:test';
 import { ContextDatabase, type IFlowFinding } from '../src/database/database.js';
-import { buildDeveloperPrompt, isValidFlowMode, validFlowModes } from '../src/commands/flow.js';
+import { buildDeveloperPrompt, isValidFlowMode, preflightFlowExecution, validFlowModes } from '../src/commands/flow.js';
 import { enforceApproval } from '../src/services/agent-runner.js';
 import { getDefaultConfig } from '../src/services/config.js';
 import { persistFindings, recurringFindings, recurringForFiles, reviewContextSnippets, runTestGate, sanitizeTestOutput, selectReviewDiff } from '../src/services/flow-review.js';
@@ -38,6 +38,19 @@ test('flow modes include every solo agent and ordered distinct pair', () => {
   ]);
   for (const mode of validFlowModes()) assert.equal(isValidFlowMode(mode), true);
   for (const mode of ['gemini+gemini', 'unknown', 'codex+claude+gemini', 'codex++gemini']) assert.equal(isValidFlowMode(mode), false);
+});
+
+test('flow preflight validates both roles before execution', () => {
+  const execution = { binary: 'agent', models: { simple: 'small', medium: 'medium', high: 'large' }, args: [], timeoutMs: 5000 };
+  const config = {
+    targets: {
+      codex: { enabled: true, execution },
+      claude: { enabled: true, execution },
+      gemini: { enabled: true, execution: { ...execution, binary: null } }
+    }
+  } as unknown as Parameters<typeof preflightFlowExecution>[0];
+  assert.throws(() => preflightFlowExecution(config, 'codex', 'gemini', 'medium'), /gemini during review: binary/);
+  assert.throws(() => preflightFlowExecution(config, 'gemini', 'codex', 'medium'), /gemini during develop: binary/);
 });
 
 test('finishing a flow run persists its final classification tier', async () => {

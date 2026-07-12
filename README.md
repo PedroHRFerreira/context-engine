@@ -8,7 +8,7 @@ O Rods SDK entrega uma camada operacional pequena e auditável para agentes:
 - RTK por padrão: compactação de saída de comandos, testes, logs e diffs.
 - Skills e arquivos de governança: regras versionadas em `.ai/` que podem ser sincronizadas com agentes suportados.
 - Adaptadores opcionais: memória entre sessões e modo de resposta curta sem virar dependência obrigatória.
-- Execução CLI-first: o framework roda pelo harness local, MCP, skills e adaptadores, sem chamar APIs de provedores de IA diretamente.
+- Execução CLI-first: flows de agentes são disparados explicitamente pelo terminal e usam as CLIs locais, sem chamar APIs de provedores de IA diretamente. O MCP expõe somente o Context Engine, não o comando `flow run`.
 
 ## Instalação
 
@@ -49,13 +49,13 @@ context --help
 
 ## Principais Atualizações
 
-Esta versão adiciona cache Q&A com validade explícita, escalação real de modelos, métricas de uso e orquestração CLI-first entre Codex e Claude, além das melhorias de governança já existentes.
+Esta versão inclui cache Q&A com validade explícita, escalação real de modelos, métricas de uso e orquestração CLI-first entre Codex, Claude e Gemini, além das melhorias de governança já existentes.
 
 | Área | O que mudou | Impacto no framework |
 |---|---|---|
 | Instalação via git | `prepare` roda `npm run build` automaticamente. | Consumidores que instalam via GitHub recebem `dist/` sem passo manual, exceto quando pnpm bloqueia lifecycle scripts. |
 | Inicialização | `rods init` agora gera governança, sincroniza Codex, escreve/mescla `~/.codex/RTK.md` e roda doctor. | O setup inicial fica concentrado em um comando e deixa de depender de `rtk init -g --codex` manual. |
-| Targets de agente | Codex e Claude são definidos em um registry de targets. | Novos harnesses podem ser adicionados com menos condicionais e menos duplicação. |
+| Targets de agente | Codex e Claude possuem integração de governança; Codex, Claude e Gemini podem executar flows. | Gemini entra como CLI de execução sem ser tratado como harness de skills/hooks. |
 | Upgrade | `rods upgrade` atualiza templates seletivamente, preserva arquivos customizados e tem `--dry-run`. | Projetos consumidores conseguem receber melhorias do SDK sem perder ajustes locais. |
 | Skills | Foram adicionadas skills de `review`, `architecture` e `quality`. | Agentes passam a ter regras versionadas para revisão, arquitetura e validação. |
 | Context Engine | `ingest` e `search` aceitam `--scope`, com `general` como padrão e `review` para revisão. | Contextos de revisão ficam isolados do índice geral sem criar outro projeto. |
@@ -63,7 +63,8 @@ Esta versão adiciona cache Q&A com validade explícita, escalação real de mod
 | Validade do cache | Cada entrada usa policy explícita `conceptual`, `files` ou `repository`; dependências por arquivo são verificadas por SHA-256. | Commits irrelevantes não invalidam respostas conceituais ou respostas ligadas apenas a arquivos específicos. |
 | Limpeza e métricas | `qa prune --stale` remove entradas obsoletas com dry-run e filtro de idade; `qa stats` exclui stale dos totais principais. | O usuário controla o acúmulo de versões inválidas e a economia reportada permanece conservadora. |
 | Escalação executável | O tier `simple`, `medium` ou `high` seleciona modelos configurados nas CLIs locais quando `escalation.mode` é `execute`. | A classificação deixa de ser apenas advisory no fluxo automatizado, sem chamadas diretas às APIs dos provedores. |
-| Fluxo multiagente | `rods flow run` executa desenvolvimento e revisão com Codex/Claude em worktree isolada, loop limitado e review estruturado. | O resultado é auditável e entregue como patch, sem modificar automaticamente o workspace original. |
+| Fluxo multiagente | `rods flow run` executa desenvolvimento e revisão com Codex, Claude ou Gemini em worktree isolada, loop limitado e review estruturado. | O resultado é auditável e entregue como patch, sem modificar automaticamente o workspace original. |
+| Validação de execução | Configurações dos dois papéis são verificadas antes da criação do worktree e novamente antes de cada chamada. | Erros identificam agente, fase e campo inválido; `RODS_DEBUG=1` habilita stack trace completo. |
 | Acurácia da revisão | Gate de testes, coerência por severidade, diff transparente, memória lexical de findings e contexto opt-in reforçam o review. | Falhas determinísticas evitam chamadas desnecessárias, enquanto contexto e padrões recorrentes melhoram a decisão dentro de limites fixos. |
 | Uso de tokens | Adapters extraem tokens somente das saídas JSON oficiais disponíveis e registram `unavailable` quando ausentes. | Relatórios não inventam consumo e permitem enxergar custo por etapa e por agente. |
 | Migração SQLite | Bancos antigos recebem backfill de `scope=general` e entradas Q&A legadas são classificadas como `repository`. | Bases já indexadas preservam dados e comportamento após o upgrade. |
@@ -180,9 +181,18 @@ rods qa invalidate <id>
 rods qa reclassify <id> --policy conceptual|files|repository [--files <paths>]
 rods qa prune --stale [--project <name>] [--older-than <days>] [--dry-run] [--json]
 rods qa stats [--project <name>] [--json]
-rods flow run <task> [--mode codex|claude|codex+claude|claude+codex] [--json]
+rods flow run <task> [--mode <agent|developer+reviewer>] [--root <path>] [--json]
 rods flow findings --file <path> [--project <name>] [--json]
 rods hook run --target codex|claude
+```
+
+Os agentes válidos para `flow run` são `codex`, `claude` e `gemini`. Um modo solo usa o mesmo agente para desenvolver e revisar. Pares devem usar agentes distintos e respeitam a ordem `developer+reviewer`:
+
+```text
+codex  claude  gemini
+codex+claude  codex+gemini
+claude+codex  claude+gemini
+gemini+codex  gemini+claude
 ```
 
 ## Integração Com Codex
@@ -236,7 +246,7 @@ AGENTS.md
 .ai/adapters/rtk.md
 ```
 
-`.ai/` é a fonte versionada da verdade. `rods adapter sync --target codex` mantém as skills em `.ai/skills` e sincroniza apenas os hooks do target. Se houver necessidade de uma projeção física para outro diretório, use `--codex-skills-dir <path>`. `rods adapter sync --target claude` gera a projeção `CLAUDE.md`.
+`.ai/` é a fonte versionada da verdade. `rods adapter sync --target codex` mantém as skills em `.ai/skills` e sincroniza apenas os hooks do target. Se houver necessidade de uma projeção física para outro diretório, use `--codex-skills-dir <path>`. `rods adapter sync --target claude` gera a projeção `CLAUDE.md`. Gemini não é um target de `adapter sync`: sua integração atual é somente como CLI de execução do flow.
 
 RTK vem habilitado por padrão em `.ai/config.json`. O hook Codex gerado pelo rods-sdk documenta o fluxo RTK/Context Engine sem exigir um passo manual de `rtk init -g --codex`.
 
@@ -264,10 +274,11 @@ Configure nomes de modelo explicitamente; o SDK não embute aliases que podem mu
   "escalation": { "enabled": true, "mode": "execute", "policyPath": ".ai/policies/complexity.md", "specsDir": "docs/rods/specs" },
   "targets": {
     "codex": { "enabled": true, "execution": { "binary": "codex", "models": { "simple": "modelo-a", "medium": "modelo-b", "high": "modelo-c" }, "args": [], "timeoutMs": 900000 } },
-    "claude": { "enabled": true, "execution": { "binary": "claude", "models": { "simple": "modelo-a", "medium": "modelo-b", "high": "modelo-c" }, "args": [], "timeoutMs": 900000 } }
+    "claude": { "enabled": true, "execution": { "binary": "claude", "models": { "simple": "modelo-a", "medium": "modelo-b", "high": "modelo-c" }, "args": [], "timeoutMs": 900000 } },
+    "gemini": { "enabled": true, "execution": { "binary": "gemini", "models": { "simple": "modelo-a", "medium": "modelo-b", "high": "modelo-c" }, "args": [], "timeoutMs": 900000 } }
   },
   "workflow": {
-    "mode": "codex+claude",
+    "mode": "codex+gemini",
     "maxIterations": 3,
     "failOnSeverity": "high",
     "testCommand": { "command": "npm", "args": ["test"], "timeoutMs": 600000 },
@@ -313,7 +324,9 @@ rods qa prune --stale --older-than 30
 
 ## Fluxo Multiagente
 
-`rods flow run` cria uma branch e worktree em `/tmp`, executa desenvolvimento e revisão em subprocessos e limita o loop por `workflow.maxIterations`. O revisor opera em modo somente leitura e precisa produzir JSON estruturado com `approved`, `summary` e `findings`.
+`rods flow run` cria uma branch e worktree em `/tmp`, executa desenvolvimento e revisão em subprocessos e limita o loop por `workflow.maxIterations`. Antes de criar o worktree, o SDK valida `binary`, modelo do tier, `args` e `timeoutMs` para developer e reviewer. A mesma validação é repetida antes das chamadas, inclusive se o tier mudar após a implementação.
+
+Cada adapter aplica o modo de permissão apropriado ao papel: Codex usa sandbox `workspace-write`/`read-only`, Claude usa `acceptEdits`/`plan` e Gemini usa `auto_edit`/`plan`. O revisor precisa produzir JSON estruturado com `approved`, `summary` e `findings`. No Gemini, o schema é solicitado pelo prompt porque a CLI não oferece enforcement equivalente ao `--output-schema` do Codex ou `--json-schema` do Claude; por isso, uma resposta fora do formato encerra o flow com erro explícito.
 
 Antes da chamada ao revisor, o flow executa `workflow.testCommand` sem shell, quando configurado. Falha, timeout ou binário ausente geram um finding `high` e evitam a chamada de LLM naquela iteração. Depois da resposta, `failOnSeverity` reconcilia `approved` com os próprios findings do modelo; por padrão, qualquer finding `high` bloqueia a aprovação.
 
@@ -324,6 +337,22 @@ O diff de revisão mantém orçamento máximo de 50 mil caracteres sem cortar pa
 O workspace original não recebe alterações automaticamente. Ao final, o comando mantém a worktree, gera um patch binário em `/tmp` e imprime o comando `git apply`. Uso de tokens é extraído apenas quando a saída JSON oficial da CLI o fornece; etapas sem dados aparecem como `unavailable`.
 
 Configurações v2 com `modelAdviceOnly` são interpretadas como `advisory`. Rode `rods upgrade --dry-run` antes de atualizar o template; arquivos `.ai/config.json` customizados são preservados e devem receber os novos campos manualmente.
+
+### Diagnóstico de execução
+
+Por padrão, o CLI mostra uma mensagem curta. Erros de configuração informam o agente, a fase (`develop`, `patch` ou `review`) e o campo inválido, por exemplo:
+
+```text
+Invalid execution configuration for gemini during review: binary must be a non-empty string
+```
+
+Para obter o stack trace completo durante uma investigação:
+
+```bash
+RODS_DEBUG=1 rods flow run "minha tarefa" --mode codex+gemini
+```
+
+Identificadores de modelo são repassados sem alteração para cada CLI. Portanto, um modelo inexistente ou incompatível é reportado pela própria CLI e identifica o agente que falhou.
 
 ## Adaptadores Opcionais
 

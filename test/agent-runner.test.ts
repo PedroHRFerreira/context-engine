@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { runAgent } from '../src/services/agent-runner.js';
+import { runAgent, validateAgentExecutionConfig } from '../src/services/agent-runner.js';
 
 async function fakeAgent(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rods-fake-agent-')); const file = path.join(root, 'agent');
@@ -64,8 +64,27 @@ test('gemini rejects invalid structured reviews', async () => {
 
 test('agent adapter rejects missing models and unsafe args', async () => {
   const binary = await fakeAgent();
-  await assert.rejects(() => runAgent({ agent: 'codex', config: { binary, models: { simple: '', medium: '', high: '' }, args: [], timeoutMs: 5000 }, tier: 'simple', cwd: os.tmpdir(), prompt: 'x' }), /No model configured/);
+  await assert.rejects(() => runAgent({ agent: 'codex', config: { binary, models: { simple: '', medium: '', high: '' }, args: [], timeoutMs: 5000 }, tier: 'simple', cwd: os.tmpdir(), prompt: 'x' }), /model for tier simple must be a non-empty string/);
   for (const arg of ['--model','--model=override','--prompt','--prompt=override','-p','--approval-mode','--approval-mode=yolo','--yolo','--yolo=true','-y','--sandbox','--sandbox=true','-s']) {
     await assert.rejects(() => runAgent({ agent: 'gemini', config: { binary, models: { simple: 'x', medium: 'x', high: 'x' }, args: [arg], timeoutMs: 5000 }, tier: 'simple', cwd: os.tmpdir(), prompt: 'x' }), /unsafe option/);
   }
+});
+
+test('execution validation rejects malformed JSON values with agent and phase context', () => {
+  const valid = { binary: 'gemini', models: { simple: 'flash', medium: 'pro', high: 'pro' }, args: [], timeoutMs: 5000 };
+  for (const binary of [undefined, null, 42, '', '   ']) {
+    assert.throws(
+      () => validateAgentExecutionConfig({ agent: 'gemini', config: { ...valid, binary }, tier: 'medium', phase: 'review' }),
+      /Invalid execution configuration for gemini during review: binary must be a non-empty string/
+    );
+  }
+  for (const model of [undefined, null, 42, '', '   ']) {
+    assert.throws(
+      () => validateAgentExecutionConfig({ agent: 'codex', config: { ...valid, models: { ...valid.models, high: model } }, tier: 'high', phase: 'patch' }),
+      /Invalid execution configuration for codex during patch: model for tier high must be a non-empty string/
+    );
+  }
+  assert.throws(() => validateAgentExecutionConfig({ agent: 'claude', config: { ...valid, args: null }, tier: 'simple', phase: 'develop' }), /args must be an array of strings/);
+  assert.throws(() => validateAgentExecutionConfig({ agent: 'claude', config: { ...valid, args: [42] }, tier: 'simple', phase: 'develop' }), /args must be an array of strings/);
+  assert.throws(() => validateAgentExecutionConfig({ agent: 'claude', config: { ...valid, timeoutMs: '5000' }, tier: 'simple', phase: 'develop' }), /timeoutMs must be an integer/);
 });
