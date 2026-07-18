@@ -29,13 +29,17 @@ test('adapter catalog excludes context-mode and keeps rtk as the default adapter
 test('governance config supplies and merges Gemini execution defaults without making it an adapter target', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-gemini-config-'));
   await initProject(root);
+  const defaults = await loadGovernanceConfig(root);
+  assert.equal(defaults.escalation?.rulesDir, 'spec');
   const configPath = path.join(root, '.ai', 'config.json');
-  const raw = JSON.parse(await fs.readFile(configPath, 'utf8')) as { targets: { gemini: { execution: { models: Record<string, string>; timeoutMs: number } } } };
+  const raw = JSON.parse(await fs.readFile(configPath, 'utf8')) as { escalation: { rulesDir: string }; targets: { gemini: { execution: { models: Record<string, string>; timeoutMs: number } } } };
+  raw.escalation.rulesDir = 'governance/rules';
   raw.targets.gemini.execution.models.medium = 'gemini-medium';
   raw.targets.gemini.execution.timeoutMs = 120000;
   await fs.writeFile(configPath, `${JSON.stringify(raw, null, 2)}\n`);
 
   const config = await loadGovernanceConfig(root);
+  assert.equal(config.escalation?.rulesDir, 'governance/rules');
   assert.equal(config.targets.gemini.execution?.binary, 'gemini');
   assert.equal(config.targets.gemini.execution?.models.medium, 'gemini-medium');
   assert.equal(config.targets.gemini.execution?.models.simple, '');
@@ -46,15 +50,21 @@ test('governance config supplies and merges Gemini execution defaults without ma
 test('enableAdapter updates .ai/config.json and writes the adapter note', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-adapter-enable-'));
   await initProject(root);
+  const configPath = path.join(root, '.ai', 'config.json');
+  const configured = JSON.parse(await fs.readFile(configPath, 'utf8')) as { escalation: { rulesDir: string } };
+  configured.escalation.rulesDir = 'project-rules';
+  await fs.writeFile(configPath, `${JSON.stringify(configured, null, 2)}\n`);
 
   const result = await enableAdapter(root, 'claude-mem');
-  const config = JSON.parse(await fs.readFile(path.join(root, '.ai', 'config.json'), 'utf8')) as {
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as {
+    escalation: { rulesDir: string };
     adapters: { rtk: { enabled: boolean }; 'claude-mem': { enabled: boolean } };
   };
 
   assert.equal(result.adapter, 'claude-mem');
   assert.equal(config.adapters.rtk.enabled, true);
   assert.equal(config.adapters['claude-mem'].enabled, true);
+  assert.equal(config.escalation.rulesDir, 'project-rules');
   assert.match(await fs.readFile(path.join(root, '.ai', 'adapters', 'claude-mem.md'), 'utf8'), /npx claude-mem install/);
 });
 
@@ -86,7 +96,7 @@ test('syncAdapters can project Codex skills to a custom directory', async () => 
 
   assert.equal(result.target, 'codex');
   assert.equal(result.path, path.join('.codex', 'skills'));
-  assert.equal(result.files.length, 6);
+  assert.equal(result.files.length, 9);
   assert.match(syncedSkill, /Context Search First/);
 });
 

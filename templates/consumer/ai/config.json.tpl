@@ -10,6 +10,7 @@
     "enabled": true,
     "policyPath": ".ai/policies/complexity.md",
     "specsDir": "docs/rods/specs",
+    "rulesDir": "spec",
     "mode": "advisory"
   },
   "defaultTarget": "codex",

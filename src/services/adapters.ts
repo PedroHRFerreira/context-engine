@@ -46,6 +46,7 @@ export interface IGovernanceConfig {
     enabled: boolean;
     policyPath: string;
     specsDir: string;
+    rulesDir: string;
     mode: 'advisory' | 'execute';
   };
   workflow?: {
@@ -414,6 +415,7 @@ export async function loadGovernanceConfig(root: string): Promise<IGovernanceCon
       enabled: parsed.escalation?.enabled ?? defaults.escalation?.enabled ?? true,
       policyPath: parsed.escalation?.policyPath ?? defaults.escalation?.policyPath ?? '.ai/policies/complexity.md',
       specsDir: parsed.escalation?.specsDir ?? defaults.escalation?.specsDir ?? 'docs/rods/specs',
+      rulesDir: parsed.escalation?.rulesDir ?? defaults.escalation?.rulesDir ?? 'spec',
       mode: parsed.escalation?.mode ?? ((parsed.escalation as { modelAdviceOnly?: boolean } | undefined)?.modelAdviceOnly === false ? 'execute' : 'advisory')
     },
     targets: mergeAgentTargets(defaults.targets, parsed.targets),
@@ -475,6 +477,7 @@ function createDefaultConfig(root: string): IGovernanceConfig {
       enabled: true,
       policyPath: '.ai/policies/complexity.md',
       specsDir: 'docs/rods/specs',
+      rulesDir: 'spec',
       mode: 'advisory'
     },
     workflow: { mode: 'codex', maxIterations: 3, failOnSeverity: 'high', reviewContext: false }

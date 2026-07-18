@@ -20,7 +20,10 @@ Detected stack: {{stackLabel}}
 |---|---|
 | repository context / file lookup | `.ai/skills/context-search-first/SKILL.md` |
 | architecture / boundaries | `.ai/skills/architecture/SKILL.md` |
+| feature spanning domain, UI, and routing | `.ai/skills/parallel-delivery/SKILL.md` |
 {{frontendReadingMapRow}}
+| browser / responsive / visual validation | `.ai/skills/visual-check/SKILL.md` |
+| durable project rule / convention | `.ai/skills/rules-capture/SKILL.md` |
 | quality / readiness | `.ai/skills/quality/SKILL.md` |
 | review / PR / commit | `.ai/skills/review/SKILL.md` |
 

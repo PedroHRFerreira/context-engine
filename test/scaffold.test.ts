@@ -10,19 +10,21 @@ test('initProject scaffolds governance files and preserves existing files by def
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-init-'));
   const firstRun = await initProject(root);
 
-  assert.equal(firstRun.length, 13);
+  assert.equal(firstRun.length, 16);
   assert.ok(firstRun.every((result) => result.status === 'created'));
 
   const configPath = path.join(root, '.ai', 'config.json');
   const config = JSON.parse(await fs.readFile(configPath, 'utf8')) as {
     project: string;
     execution: { mode: string; apiEnabled: boolean };
+    escalation: { rulesDir: string };
     adapters: { rtk: { enabled: boolean }; 'context-mode'?: { enabled: boolean } };
     generatedTemplates: Record<string, string>;
   };
 
   assert.equal(config.project, path.basename(root));
   assert.deepEqual(config.execution, { mode: 'cli', apiEnabled: false });
+  assert.equal(config.escalation.rulesDir, 'spec');
   assert.equal(config.adapters.rtk.enabled, true);
   assert.equal(config.adapters['context-mode'], undefined);
   assert.ok(config.generatedTemplates['AGENTS.md']);
@@ -36,6 +38,10 @@ test('initProject scaffolds governance files and preserves existing files by def
   assert.match(await fs.readFile(path.join(root, '.ai', 'skills', 'review', 'SKILL.md'), 'utf8'), /name: review/);
   assert.match(await fs.readFile(path.join(root, '.ai', 'policies', 'complexity.md'), 'utf8'), /maxFiles: 2/);
   assert.match(await fs.readFile(path.join(root, '.ai', 'skills', 'design-brainstorm', 'SKILL.md'), 'utf8'), /design-brainstorm/);
+  assert.match(await fs.readFile(path.join(root, '.ai', 'skills', 'parallel-delivery', 'SKILL.md'), 'utf8'), /name: parallel-delivery/);
+  assert.match(await fs.readFile(path.join(root, '.ai', 'skills', 'visual-check', 'SKILL.md'), 'utf8'), /name: visual-check/);
+  assert.match(await fs.readFile(path.join(root, '.ai', 'skills', 'rules-capture', 'SKILL.md'), 'utf8'), /name: rules-capture/);
+  assert.match(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'), /feature spanning domain, UI, and routing/);
   assert.match(await fs.readFile(path.join(root, '.ai', 'adapters', 'codex', 'capabilities.md'), 'utf8'), /harness: codex/);
   assert.equal(await fs.readFile(path.join(root, '.rods', '.gitignore'), 'utf8'), '*\n!.gitignore\n');
 
@@ -58,18 +64,46 @@ test('upgradeProject supports dry-run and reports customized generated files', a
   await initProject(root);
 
   await fs.writeFile(path.join(root, 'AGENTS.md'), 'custom');
+  const visualCheckPath = path.join(root, '.ai', 'skills', 'visual-check', 'SKILL.md');
+  await fs.rm(visualCheckPath);
 
   const dryRun = await upgradeProject(root, { dryRun: true });
   const agentsDryRun = dryRun.find((result) => result.path.endsWith('AGENTS.md'));
+  const visualCheckDryRun = dryRun.find((result) => result.path === visualCheckPath);
 
   assert.equal(agentsDryRun?.status, 'would-skip-customized');
+  assert.equal(visualCheckDryRun?.status, 'would-create');
   assert.equal(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'), 'custom');
 
   const forced = await upgradeProject(root, { force: true });
   const agentsForced = forced.find((result) => result.path.endsWith('AGENTS.md'));
 
   assert.equal(agentsForced?.status, 'overwritten');
+  assert.match(await fs.readFile(visualCheckPath, 'utf8'), /name: visual-check/);
   assert.match(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'), /Rods SDK Defaults/);
+});
+
+test('delivery and visual skills preserve their workflow invariants', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'context-skills-'));
+  await initProject(root);
+
+  const skillsRoot = path.join(root, '.ai', 'skills');
+  const delivery = await fs.readFile(path.join(skillsRoot, 'parallel-delivery', 'SKILL.md'), 'utf8');
+  const deliveryGraph = delivery.split('## Delivery Graph\n\n')[1]?.split('\n## Execution Rules')[0] ?? '';
+  const quality = await fs.readFile(path.join(skillsRoot, 'quality', 'SKILL.md'), 'utf8');
+  const review = await fs.readFile(path.join(skillsRoot, 'review', 'SKILL.md'), 'utf8');
+  const visual = await fs.readFile(path.join(skillsRoot, 'visual-check', 'SKILL.md'), 'utf8');
+  const rules = await fs.readFile(path.join(skillsRoot, 'rules-capture', 'SKILL.md'), 'utf8');
+
+  assert.equal(deliveryGraph.match(/^\d+\. \*\*/gm)?.length, 6);
+  assert.match(deliveryGraph, /depends on agents 1 and 2/);
+  assert.match(deliveryGraph, /starts only after agents 3, 4, and 5/);
+  assert.match(quality, /Visual Validation \(UI Changes Only\)/);
+  assert.match(review, /visual-check/);
+  assert.match(visual, /pnpm dlx playwright install chromium/);
+  assert.match(visual, /Never claim or simulate visual validation/);
+  assert.match(rules, /<rulesDir>\/<branch>\/rules\.md/);
+  assert.match(rules, /git branch --show-current/);
 });
 
 test('upgradeProjectScripts creates scripts and preserves customized entries', async () => {

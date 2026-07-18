@@ -13,3 +13,4 @@ Detected stack: {{stackLabel}}
 2. Keep transport, adapter, domain, and UI responsibilities separated.
 3. Do not add abstractions unless they remove real duplication or clarify ownership.
 4. Document any boundary change in the final response.
+5. When a feature spans domain, rendered UI, and routing and can be split safely, use the `parallel-delivery` skill.

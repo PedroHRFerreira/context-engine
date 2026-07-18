@@ -61,6 +61,18 @@ const INIT_TEMPLATES: ITemplateMapping[] = [
     template: 'ai/skills/design-brainstorm/SKILL.md.tpl',
     destination: '.ai/skills/design-brainstorm/SKILL.md'
   },
+  {
+    template: 'ai/skills/parallel-delivery/SKILL.md.tpl',
+    destination: '.ai/skills/parallel-delivery/SKILL.md'
+  },
+  {
+    template: 'ai/skills/visual-check/SKILL.md.tpl',
+    destination: '.ai/skills/visual-check/SKILL.md'
+  },
+  {
+    template: 'ai/skills/rules-capture/SKILL.md.tpl',
+    destination: '.ai/skills/rules-capture/SKILL.md'
+  },
   { template: 'ai/adapters/codex/capabilities.md.tpl', destination: '.ai/adapters/codex/capabilities.md' },
   { template: 'ai/adapters/claude/capabilities.md.tpl', destination: '.ai/adapters/claude/capabilities.md' },
   {
