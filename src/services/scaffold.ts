@@ -98,7 +98,7 @@ export async function initProject(root: string, options: IInitProjectOptions = {
     projectName: options.projectName ?? path.basename(resolvedRoot),
     stackLabel: stack.label,
     frontendReadingMapRow: stack.hasFrontend
-      ? '| frontend / styles | `.ai/skills/architecture/SKILL.md`, `.ai/skills/quality/SKILL.md` |'
+      ? '\n| frontend / styles | `.ai/skills/architecture/SKILL.md`, `.ai/skills/quality/SKILL.md` |'
       : ''
   };
 
@@ -168,7 +168,7 @@ export async function upgradeProject(root: string, options: IInitProjectOptions 
     projectName: options.projectName ?? path.basename(resolvedRoot),
     stackLabel: stack.label,
     frontendReadingMapRow: stack.hasFrontend
-      ? '| frontend / styles | `.ai/skills/architecture/SKILL.md`, `.ai/skills/quality/SKILL.md` |'
+      ? '\n| frontend / styles | `.ai/skills/architecture/SKILL.md`, `.ai/skills/quality/SKILL.md` |'
       : ''
   };
   const metadata = await readTemplateMetadata(resolvedRoot);

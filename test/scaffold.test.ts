@@ -28,8 +28,13 @@ test('initProject scaffolds governance files and preserves existing files by def
   assert.equal(config.adapters.rtk.enabled, true);
   assert.equal(config.adapters['context-mode'], undefined);
   assert.ok(config.generatedTemplates['AGENTS.md']);
-  assert.match(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'), /Rods SDK Defaults/);
-  assert.match(await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'), /Reading Map/);
+  const agents = await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /Rods SDK Defaults/);
+  assert.match(agents, /Reading Map/);
+  assert.match(
+    agents,
+    /\| feature spanning domain, UI, and routing .+\|\n\| browser \/ responsive \/ visual validation /
+  );
   assert.match(await fs.readFile(path.join(root, '.ai', 'adapters', 'rtk.md'), 'utf8'), /default rods-sdk/);
   assert.match(
     await fs.readFile(path.join(root, '.ai', 'skills', 'context-search-first', 'SKILL.md'), 'utf8'),
